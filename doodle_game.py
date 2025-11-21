@@ -352,6 +352,11 @@ class DoodleGameApp:
             "per_label": defaultdict(lambda: {"asked": 0, "correct": 0})
         }
 
+        # Achievements & Progress
+        self.progress = self._load_progress()
+        self.achievements = self._init_achievements()
+        self.unlocked_this_session = []
+
         # Auto-predict state
         self.auto_predict_enabled = tk.BooleanVar(value=False)
         self.auto_predict_job = None
@@ -362,6 +367,7 @@ class DoodleGameApp:
         
         self.start_frame = self._build_start_frame(self.container)
         self.game_frame = self._build_game_frame(self.container)
+        self.progress_frame = self._build_progress_frame(self.container)
         self._show_frame(self.start_frame)
 
     def _apply_theme(self):
@@ -458,9 +464,16 @@ class DoodleGameApp:
                  background=THEME["border"], justify="left").pack(anchor="w", pady=(4, 0))
 
         # Start button
-        start_btn = RoundedButton(card, text="Start Game", style="accent",
+        btn_container = tk.Frame(card, bg=THEME["card"])
+        btn_container.pack(anchor="w", fill="x")
+        
+        start_btn = RoundedButton(btn_container, text="Start Game", style="accent",
                                  width=160, height=48, command=self._start_game)
-        start_btn.pack(anchor="w")
+        start_btn.pack(side="left", padx=(0, 12))
+        
+        progress_btn = RoundedButton(btn_container, text="📊 Progress", style="normal",
+                                    width=140, height=48, command=self._show_progress)
+        progress_btn.pack(side="left")
 
         return f
 
@@ -637,7 +650,353 @@ class DoodleGameApp:
         self._bind_shortcuts()
         return f
 
+    def _build_progress_frame(self, parent):
+        """Build achievements and progress tracking screen"""
+        f = tk.Frame(parent, bg=THEME["bg"], padx=40, pady=40)
+        
+        # Header
+        header = tk.Frame(f, bg=THEME["bg"])
+        header.pack(fill="x", pady=(0, 24))
+        
+        ttk.Label(header, text="📊 Your Progress", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(header, text="Track your achievements and statistics",
+                 font=("Segoe UI", 11), foreground=THEME["muted"],
+                 background=THEME["bg"]).pack(anchor="w", pady=(4, 0))
+
+        # Main content area
+        content = tk.Frame(f, bg=THEME["bg"])
+        content.pack(fill="both", expand=True)
+        content.columnconfigure(0, weight=2)
+        content.columnconfigure(1, weight=1)
+
+        # Left: Statistics
+        stats_card = tk.Frame(content, bg=THEME["card"], padx=24, pady=20)
+        stats_card.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+
+        ttk.Label(stats_card, text="🎮 Game Statistics", style="H1.TLabel").pack(anchor="w", pady=(0, 16))
+
+        # Stats grid
+        stats_grid = tk.Frame(stats_card, bg=THEME["card"])
+        stats_grid.pack(fill="x", pady=(0, 20))
+
+        stat_items = [
+            ("Total Games", self.progress['games_played']),
+            ("Total Rounds Won", self.progress['rounds_won']),
+            ("Total Guesses", self.progress['total_guesses']),
+            ("Correct Guesses", self.progress['correct_guesses']),
+            ("Drawings Taught", self.progress['drawings_taught']),
+            ("Best Streak", self.progress['best_streak']),
+        ]
+
+        for i, (label, value) in enumerate(stat_items):
+            row = i // 2
+            col = i % 2
+            
+            stat_frame = tk.Frame(stats_grid, bg=THEME["card_hover"], padx=16, pady=12)
+            stat_frame.grid(row=row, column=col, sticky="ew", padx=(0, 8) if col == 0 else (0, 0), pady=(0, 8))
+            
+            tk.Label(stat_frame, text=str(value), font=("Segoe UI", 24, "bold"),
+                    fg=THEME["accent"], bg=THEME["card_hover"]).pack(anchor="w")
+            tk.Label(stat_frame, text=label, font=("Segoe UI", 10),
+                    fg=THEME["muted"], bg=THEME["card_hover"]).pack(anchor="w")
+
+        stats_grid.columnconfigure(0, weight=1)
+        stats_grid.columnconfigure(1, weight=1)
+
+        # Accuracy stats
+        if self.progress['total_guesses'] > 0:
+            accuracy = (self.progress['correct_guesses'] / self.progress['total_guesses']) * 100
+        else:
+            accuracy = 0
+
+        ttk.Label(stats_card, text="Overall Accuracy", style="H2.TLabel").pack(anchor="w", pady=(8, 8))
+        
+        acc_bar = AnimatedProgressBar(stats_card, width=400, height=32)
+        acc_bar.pack(fill="x", pady=(0, 8))
+        acc_bar.set_value(accuracy)
+        
+        tk.Label(stats_card, text=f"{accuracy:.1f}%", font=("Segoe UI", 18, "bold"),
+                fg=THEME["success"], bg=THEME["card"]).pack(anchor="w")
+
+        # Per-category performance
+        ttk.Label(stats_card, text="Category Performance", style="H2.TLabel").pack(anchor="w", pady=(20, 12))
+        
+        cat_frame = tk.Frame(stats_card, bg=THEME["card"])
+        cat_frame.pack(fill="x")
+
+        for cat in ALL_CATEGORIES:
+            cat_stats = self.progress['per_category'].get(cat, {'asked': 0, 'correct': 0})
+            asked = cat_stats['asked']
+            correct = cat_stats['correct']
+            acc = (correct / asked * 100) if asked > 0 else 0
+
+            cat_row = tk.Frame(cat_frame, bg=THEME["card_hover"], padx=12, pady=8)
+            cat_row.pack(fill="x", pady=(0, 4))
+
+            tk.Label(cat_row, text=cat.title(), font=("Segoe UI", 11),
+                    fg=THEME["text"], bg=THEME["card_hover"], width=10, anchor="w").pack(side="left")
+            
+            bar_container = tk.Frame(cat_row, bg=THEME["card_hover"])
+            bar_container.pack(side="left", fill="x", expand=True, padx=(8, 8))
+            
+            mini_bar = AnimatedProgressBar(bar_container, width=200, height=16)
+            mini_bar.pack(side="left")
+            mini_bar.set_value(acc)
+
+            tk.Label(cat_row, text=f"{correct}/{asked}", font=("Segoe UI", 10),
+                    fg=THEME["muted"], bg=THEME["card_hover"]).pack(side="right")
+
+        # Right: Achievements
+        achieve_card = tk.Frame(content, bg=THEME["card"], padx=24, pady=20)
+        achieve_card.grid(row=0, column=1, sticky="nsew")
+
+        ttk.Label(achieve_card, text="🏆 Achievements", style="H1.TLabel").pack(anchor="w", pady=(0, 16))
+
+        # Scrollable achievements list
+        achieve_canvas = tk.Canvas(achieve_card, bg=THEME["card"], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(achieve_card, orient="vertical", command=achieve_canvas.yview)
+        achieve_list = tk.Frame(achieve_canvas, bg=THEME["card"])
+
+        achieve_list.bind("<Configure>", lambda e: achieve_canvas.configure(scrollregion=achieve_canvas.bbox("all")))
+        achieve_canvas.create_window((0, 0), window=achieve_list, anchor="nw")
+        achieve_canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Display achievements
+        for ach_id, achievement in self.achievements.items():
+            unlocked = achievement['unlocked']
+            
+            ach_frame = tk.Frame(achieve_list, 
+                                bg=THEME["card_hover"] if unlocked else THEME["border"],
+                                padx=12, pady=12)
+            ach_frame.pack(fill="x", pady=(0, 8))
+
+            # Icon and title
+            icon_label = tk.Label(ach_frame, text=achievement['icon'], font=("Segoe UI", 20),
+                                 bg=ach_frame['bg'])
+            icon_label.pack(anchor="w")
+
+            title_label = tk.Label(ach_frame, text=achievement['title'],
+                                  font=("Segoe UI", 11, "bold"),
+                                  fg=THEME["text"] if unlocked else THEME["muted"],
+                                  bg=ach_frame['bg'], anchor="w")
+            title_label.pack(anchor="w", fill="x")
+
+            desc_label = tk.Label(ach_frame, text=achievement['description'],
+                                 font=("Segoe UI", 9),
+                                 fg=THEME["text_secondary"] if unlocked else THEME["muted"],
+                                 bg=ach_frame['bg'], anchor="w", wraplength=250, justify="left")
+            desc_label.pack(anchor="w", fill="x", pady=(4, 0))
+
+            # Progress for locked achievements
+            if not unlocked and 'progress' in achievement:
+                prog_text = f"{achievement['progress']}/{achievement['target']}"
+                prog_label = tk.Label(ach_frame, text=prog_text,
+                                     font=("Segoe UI", 9, "italic"),
+                                     fg=THEME["muted"], bg=ach_frame['bg'])
+                prog_label.pack(anchor="w", pady=(4, 0))
+
+        achieve_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Back button
+        back_btn = RoundedButton(f, text="⬅️ Back to Menu", width=160, height=44,
+                                command=lambda: self._show_frame(self.start_frame))
+        back_btn.pack(pady=(20, 0))
+
+        return f
+
     # -------------- Game Logic --------------
+    def _init_achievements(self):
+        """Initialize achievement definitions"""
+        return {
+            'first_win': {
+                'title': 'First Victory',
+                'description': 'Win your first round',
+                'icon': '🎯',
+                'unlocked': self.progress['rounds_won'] >= 1
+            },
+            'perfect_game': {
+                'title': 'Perfect Score',
+                'description': 'Complete a game with 100% accuracy',
+                'icon': '💯',
+                'unlocked': self.progress.get('perfect_games', 0) >= 1
+            },
+            'ten_wins': {
+                'title': 'Seasoned Artist',
+                'description': 'Win 10 rounds',
+                'icon': '🎨',
+                'unlocked': self.progress['rounds_won'] >= 10,
+                'progress': min(self.progress['rounds_won'], 10),
+                'target': 10
+            },
+            'fifty_wins': {
+                'title': 'Master Doodler',
+                'description': 'Win 50 rounds',
+                'icon': '👑',
+                'unlocked': self.progress['rounds_won'] >= 50,
+                'progress': min(self.progress['rounds_won'], 50),
+                'target': 50
+            },
+            'teacher': {
+                'title': 'AI Teacher',
+                'description': 'Teach the AI 20 drawings',
+                'icon': '👨‍🏫',
+                'unlocked': self.progress['drawings_taught'] >= 20,
+                'progress': min(self.progress['drawings_taught'], 20),
+                'target': 20
+            },
+            'streak_5': {
+                'title': 'Hot Streak',
+                'description': 'Get 5 correct guesses in a row',
+                'icon': '🔥',
+                'unlocked': self.progress['best_streak'] >= 5,
+                'progress': min(self.progress['best_streak'], 5),
+                'target': 5
+            },
+            'speed_demon': {
+                'title': 'Speed Demon',
+                'description': 'Win a round in under 60 seconds',
+                'icon': '⚡',
+                'unlocked': self.progress.get('fastest_game', 999) < 60
+            },
+            'all_categories': {
+                'title': 'Category Master',
+                'description': 'Win at least once in every category',
+                'icon': '🌟',
+                'unlocked': all(self.progress['per_category'].get(cat, {}).get('correct', 0) > 0 
+                               for cat in ALL_CATEGORIES)
+            },
+            'hundred_games': {
+                'title': 'Dedicated Player',
+                'description': 'Play 100 games',
+                'icon': '💪',
+                'unlocked': self.progress['games_played'] >= 100,
+                'progress': min(self.progress['games_played'], 100),
+                'target': 100
+            },
+            'high_confidence': {
+                'title': 'Confidence King',
+                'description': 'Win with 95%+ confidence',
+                'icon': '😎',
+                'unlocked': self.progress.get('high_conf_wins', 0) >= 1
+            }
+        }
+
+    def _load_progress(self):
+        """Load progress from file or create new"""
+        try:
+            import json
+            with open('doodle_progress.json', 'r') as f:
+                return json.load(f)
+        except:
+            return {
+                'games_played': 0,
+                'rounds_won': 0,
+                'total_guesses': 0,
+                'correct_guesses': 0,
+                'drawings_taught': 0,
+                'best_streak': 0,
+                'current_streak': 0,
+                'perfect_games': 0,
+                'fastest_game': 999,
+                'high_conf_wins': 0,
+                'per_category': {cat: {'asked': 0, 'correct': 0} for cat in ALL_CATEGORIES}
+            }
+
+    def _save_progress(self):
+        """Save progress to file"""
+        try:
+            import json
+            with open('doodle_progress.json', 'w') as f:
+                json.dump(self.progress, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save progress: {e}")
+
+    def _check_achievements(self):
+        """Check for newly unlocked achievements"""
+        newly_unlocked = []
+        
+        for ach_id, achievement in self.achievements.items():
+            was_unlocked = achievement['unlocked']
+            
+            # Re-evaluate unlock condition
+            if ach_id == 'first_win':
+                achievement['unlocked'] = self.progress['rounds_won'] >= 1
+            elif ach_id == 'perfect_game':
+                achievement['unlocked'] = self.progress.get('perfect_games', 0) >= 1
+            elif ach_id == 'ten_wins':
+                achievement['unlocked'] = self.progress['rounds_won'] >= 10
+                achievement['progress'] = min(self.progress['rounds_won'], 10)
+            elif ach_id == 'fifty_wins':
+                achievement['unlocked'] = self.progress['rounds_won'] >= 50
+                achievement['progress'] = min(self.progress['rounds_won'], 50)
+            elif ach_id == 'teacher':
+                achievement['unlocked'] = self.progress['drawings_taught'] >= 20
+                achievement['progress'] = min(self.progress['drawings_taught'], 20)
+            elif ach_id == 'streak_5':
+                achievement['unlocked'] = self.progress['best_streak'] >= 5
+                achievement['progress'] = min(self.progress['best_streak'], 5)
+            elif ach_id == 'speed_demon':
+                achievement['unlocked'] = self.progress.get('fastest_game', 999) < 60
+            elif ach_id == 'all_categories':
+                achievement['unlocked'] = all(self.progress['per_category'].get(cat, {}).get('correct', 0) > 0 
+                                             for cat in ALL_CATEGORIES)
+            elif ach_id == 'hundred_games':
+                achievement['unlocked'] = self.progress['games_played'] >= 100
+                achievement['progress'] = min(self.progress['games_played'], 100)
+            elif ach_id == 'high_confidence':
+                achievement['unlocked'] = self.progress.get('high_conf_wins', 0) >= 1
+            
+            # Track newly unlocked
+            if achievement['unlocked'] and not was_unlocked:
+                newly_unlocked.append((ach_id, achievement))
+        
+        # Show notification for new achievements
+        for ach_id, achievement in newly_unlocked:
+            self._show_achievement_unlock(achievement)
+            self.unlocked_this_session.append(ach_id)
+
+    def _show_achievement_unlock(self, achievement):
+        """Show achievement unlock notification"""
+        notif = tk.Toplevel(self.root)
+        notif.title("Achievement Unlocked!")
+        notif.configure(bg=THEME["card"])
+        notif.transient(self.root)
+        notif.attributes('-topmost', True)
+        
+        # Center on screen
+        notif.geometry("350x150")
+        notif.update_idletasks()
+        x = (notif.winfo_screenwidth() // 2) - (350 // 2)
+        y = (notif.winfo_screenheight() // 2) - (150 // 2)
+        notif.geometry(f"350x150+{x}+{y}")
+
+        container = tk.Frame(notif, bg=THEME["success"], padx=24, pady=20)
+        container.pack(fill="both", expand=True)
+
+        tk.Label(container, text="🎉 Achievement Unlocked!",
+                font=("Segoe UI", 14, "bold"), fg="white", bg=THEME["success"]).pack()
+
+        tk.Label(container, text=f"{achievement['icon']} {achievement['title']}",
+                font=("Segoe UI", 16, "bold"), fg="white", bg=THEME["success"]).pack(pady=(8, 4))
+
+        tk.Label(container, text=achievement['description'],
+                font=("Segoe UI", 10), fg="white", bg=THEME["success"]).pack()
+
+        # Auto close after 3 seconds
+        notif.after(3000, notif.destroy)
+
+    def _show_progress(self):
+        """Show progress screen"""
+        # Refresh achievements before showing
+        self.achievements = self._init_achievements()
+        self._show_frame(self.progress_frame)
+        
+        # Rebuild the frame to update stats
+        self.progress_frame.destroy()
+        self.progress_frame = self._build_progress_frame(self.container)
+        self._show_frame(self.progress_frame)
+
     def _start_game(self):
         self.diff = self.diff_var.get()
         preset = DIFF_PRESETS[self.diff]
@@ -660,6 +1019,7 @@ class DoodleGameApp:
         self.score = 0
         self.round_index = 0
         self.lbl_score.config(text="0")
+        self.unlocked_this_session = []
         self.stats = {
             "started_at": time.time(),
             "guesses": 0,
@@ -837,9 +1197,30 @@ class DoodleGameApp:
             self.stats["per_label"][self.target]["correct"] += 1
             self.lbl_score.config(text=str(self.score))
             
+            # Update progress
+            self.progress['correct_guesses'] += 1
+            self.progress['current_streak'] += 1
+            if self.progress['current_streak'] > self.progress['best_streak']:
+                self.progress['best_streak'] = self.progress['current_streak']
+            
+            # High confidence win
+            if conf_s >= 0.95:
+                self.progress['high_conf_wins'] = self.progress.get('high_conf_wins', 0) + 1
+            
+            # Update per-category
+            if self.target not in self.progress['per_category']:
+                self.progress['per_category'][self.target] = {'asked': 0, 'correct': 0}
+            self.progress['per_category'][self.target]['correct'] += 1
+            
+            self._save_progress()
+            self._check_achievements()
+            
             # Visual feedback
             self._show_success_feedback()
             self.root.after(800, self._advance_round)
+        else:
+            # Reset streak on wrong guess
+            self.progress['current_streak'] = 0
 
     def _show_success_feedback(self):
         """Flash success animation"""
@@ -865,6 +1246,11 @@ class DoodleGameApp:
         self.y = np.append(self.y, self.target) if self.y is not None else np.array([self.target], dtype=object)
         self.model.fit(self.X, self.y)
         
+        # Update progress
+        self.progress['drawings_taught'] += 1
+        self._save_progress()
+        self._check_achievements()
+        
         self.lbl_pred.config(text=f"✓ Taught: {self.target}")
         self.lbl_conf.config(text="Added to training data")
         self.conf_bar.set_value(100)
@@ -874,15 +1260,25 @@ class DoodleGameApp:
         self.target = random.choice(self.active_categories)
         self.lbl_target.config(text=self.target)
         self.stats["per_label"][self.target]["asked"] += 1
+        
+        # Update progress per-category
+        if self.target not in self.progress['per_category']:
+            self.progress['per_category'][self.target] = {'asked': 0, 'correct': 0}
+        self.progress['per_category'][self.target]['asked'] += 1
+        
         if auto_clear:
             self.clear_canvas()
 
     def _advance_round(self):
         self.round_index += 1
+        self.progress['rounds_won'] += 1
+        self._save_progress()
+        
         if self.round_index >= self.rounds_total:
             self._end_round()
         else:
             self.next_target(auto_clear=True)
+            self._check_achievements()
 
     # -------------- End Game --------------
     def _end_round(self):
@@ -893,13 +1289,28 @@ class DoodleGameApp:
         accuracy = (correct / guesses * 100.0) if guesses else 0.0
         avg_conf = (self.stats["conf_sum_correct"] / correct) if correct else 0.0
 
+        # Update global progress
+        self.progress['games_played'] += 1
+        self.progress['total_guesses'] += guesses
+        
+        # Check for perfect game
+        if accuracy == 100.0 and guesses > 0:
+            self.progress['perfect_games'] = self.progress.get('perfect_games', 0) + 1
+        
+        # Check fastest game
+        if duration < self.progress.get('fastest_game', 999):
+            self.progress['fastest_game'] = duration
+        
+        self._save_progress()
+        self._check_achievements()
+
         # Create modal
         win = tk.Toplevel(self.root)
         win.title("Game Complete!")
         win.configure(bg=THEME["bg"])
         win.transient(self.root)
         win.grab_set()
-        win.geometry("500x600")
+        win.geometry("550x700")
 
         container = tk.Frame(win, bg=THEME["card"], padx=32, pady=32)
         container.pack(fill="both", expand=True, padx=20, pady=20)
@@ -908,6 +1319,14 @@ class DoodleGameApp:
         ttk.Label(container, text="🏆 Game Complete!",
                  font=("Segoe UI", 20, "bold"), foreground=THEME["success"],
                  background=THEME["card"]).pack(pady=(0, 20))
+
+        # Achievement notifications
+        if self.unlocked_this_session:
+            ach_banner = tk.Frame(container, bg=THEME["success"], padx=16, pady=12)
+            ach_banner.pack(fill="x", pady=(0, 16))
+            
+            tk.Label(ach_banner, text=f"🎉 {len(self.unlocked_this_session)} New Achievement(s) Unlocked!",
+                    font=("Segoe UI", 11, "bold"), fg="white", bg=THEME["success"]).pack()
 
         # Stats grid
         stats_frame = tk.Frame(container, bg=THEME["card_hover"], padx=20, pady=16)
@@ -972,7 +1391,10 @@ class DoodleGameApp:
         RoundedButton(btn_frame, text="🔄 Play Again", width=140, height=44,
                      style="accent", command=lambda: [win.destroy(), self._start_game()]).pack(side="left", padx=(0, 8))
         
-        RoundedButton(btn_frame, text="⬅️ Main Menu", width=140, height=44,
+        RoundedButton(btn_frame, text="📊 Progress", width=140, height=44,
+                     command=lambda: [win.destroy(), self._show_progress()]).pack(side="left", padx=(0, 8))
+        
+        RoundedButton(btn_frame, text="⬅️ Menu", width=100, height=44,
                      command=lambda: [win.destroy(), self._exit_to_start()]).pack(side="left")
 
     # -------------- Data I/O --------------
