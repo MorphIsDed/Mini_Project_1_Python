@@ -1,30 +1,13 @@
 """
-Doodle Recognition Game
-======================
+Enhanced Doodle Recognition Game
+================================
 
-A machine learning-based drawing recognition game where users draw simple doodles 
-that an AI model tries to recognize in real-time.
-
-Key Features:
-    - Real-time drawing recognition using KNN classifier
-    - Multiple difficulty levels
-    - Drawing tools (brush, eraser, colors)
-    - Training capability (teach mode)
-    - Score tracking and statistics
-    - Dataset save/load functionality
-
-Game Modes:
-    - Easy: 4 categories, lower confidence threshold
-    - Medium: 6 categories, moderate threshold
-    - Hard: 6 categories, high threshold
-
-Controls:
-    - Space: Make prediction
-    - T: Teach current drawing
-    - N: New target
-    - C: Clear canvas
-    - B: Switch to brush
-    - E: Switch to eraser
+An improved machine learning-based drawing recognition game with:
+- Smoother animations and transitions
+- Better visual feedback
+- Enhanced UI/UX
+- Real-time confidence visualization
+- Improved drawing tools
 """
 
 # Standard library imports
@@ -38,32 +21,36 @@ from PIL import Image, ImageDraw, ImageOps, ImageFilter
 # ----------------------------
 # Configuration Constants
 # ----------------------------
-CANVAS_SIZE = 520      # Size of drawing canvas in pixels
-PREP_SIZE = 28         # Size of preprocessed images for model
+CANVAS_SIZE = 520
+PREP_SIZE = 28
 DATA_FILE = "doodle_data.npz"
-K_NEIGHBORS = 5        # Number of neighbors for KNN
+K_NEIGHBORS = 5
 
-# Available drawing categories
 ALL_CATEGORIES = ["sun", "cloud", "smiley", "star", "tree", "house"]
 
-# Difficulty presets with their parameters
 DIFF_PRESETS = {
     "Easy":   {"categories": 4, "conf_threshold": 0.25, "smooth_window": 5},
     "Medium": {"categories": 6, "conf_threshold": 0.38, "smooth_window": 7},
     "Hard":   {"categories": 6, "conf_threshold": 0.55, "smooth_window": 9},
 }
 
-# UI Theme colors
+# Enhanced color scheme with gradients
 THEME = {
-    "bg": "#0f1117",       # Background
-    "card": "#171a21",     # Card/panel background
-    "accent": "#5b8cff",   # Primary accent color
-    "text": "#e5e7eb",     # Primary text
-    "muted": "#9aa3af",    # Secondary text
-    "border": "#2a2f39",   # Border color
+    "bg": "#0a0e1a",
+    "card": "#151b2e",
+    "card_hover": "#1a2236",
+    "accent": "#6366f1",
+    "accent_hover": "#4f46e5",
+    "success": "#10b981",
+    "danger": "#ef4444",
+    "warning": "#f59e0b",
+    "text": "#f1f5f9",
+    "text_secondary": "#cbd5e1",
+    "muted": "#64748b",
+    "border": "#1e293b",
+    "canvas_bg": "#0f172a",
 }
 
-# Available color palette
 PALETTE = [
     ("White", "#ffffff"),
     ("Yellow", "#fbbf24"),
@@ -72,21 +59,13 @@ PALETTE = [
     ("Blue", "#3b82f6"),
     ("Cyan", "#06b6d4"),
     ("Magenta", "#e879f9"),
+    ("Orange", "#f97316"),
 ]
 
 # ----------------------------
-# KNN Classifier Implementation
+# KNN Classifier
 # ----------------------------
 class TinyKNN:
-    """
-    A lightweight K-Nearest Neighbors classifier with distance weighting.
-    
-    Features:
-        - Euclidean + Cosine similarity hybrid distance metric
-        - Distance-weighted voting
-        - Confidence estimation
-        - Class frequency normalization
-    """
     def __init__(self, k=5):
         self.k = k
         self.X = None
@@ -113,7 +92,7 @@ class TinyKNN:
             return {}
         d = self._hybrid_distance(x)
         idx = np.argsort(d)[:min(self.k, len(d))]
-        w = 1.0 / (d[idx] + 1e-6)  # distance weights
+        w = 1.0 / (d[idx] + 1e-6)
         scores = {}
         for wi, lab in zip(w, self.y[idx]):
             c = self.class_counts.get(lab, 1)
@@ -133,25 +112,9 @@ class TinyKNN:
         return labs[best_idx], float(probs[best_idx])
 
 # ----------------------------
-# Image Processing Utilities
+# Image Processing
 # ----------------------------
 def preprocess_image(pil_img):
-    """
-    Preprocess a drawing for model input.
-    
-    Steps:
-    1. Convert to grayscale
-    2. Auto-contrast for better white/black separation
-    3. Resize to PREP_SIZE x PREP_SIZE
-    4. Apply slight Gaussian blur for smoothing
-    5. Normalize pixel values to [0,1]
-    
-    Args:
-        pil_img (PIL.Image): Input image
-        
-    Returns:
-        np.array: Flattened preprocessed image vector
-    """
     img = pil_img.convert("L")
     img = ImageOps.autocontrast(img)
     img = img.resize((PREP_SIZE, PREP_SIZE), Image.BICUBIC)
@@ -160,17 +123,6 @@ def preprocess_image(pil_img):
     return arr.reshape(-1)
 
 def draw_seed_shape(label, size=PREP_SIZE):
-    """
-    Generate prototype drawings for initial training data.
-    Each shape is procedurally generated based on the category.
-    
-    Args:
-        label (str): Category name
-        size (int): Output image size
-        
-    Returns:
-        np.array: Flattened image vector [0,1] range
-    """
     img = Image.new("L", (size, size), 0)
     d = ImageDraw.Draw(img)
     if label == "sun":
@@ -214,16 +166,6 @@ def draw_seed_shape(label, size=PREP_SIZE):
     return np.asarray(img, dtype=np.float32).reshape(-1) / 255.0
 
 def generate_seed_dataset(categories):
-    """
-    Create initial training dataset with synthetic examples.
-    Applies random transformations to add variety.
-    
-    Args:
-        categories (list): List of category names
-        
-    Returns:
-        tuple: (X, y) - feature vectors and labels
-    """
     X, y = [], []
     rng = np.random.default_rng(7)
     for lab in categories:
@@ -240,37 +182,157 @@ def generate_seed_dataset(categories):
     return np.array(X, dtype=np.float32), np.array(y, dtype=object)
 
 # ----------------------------
+# Custom Widgets
+# ----------------------------
+class RoundedButton(tk.Canvas):
+    """Custom button with rounded corners and hover effects"""
+    def __init__(self, parent, text="", command=None, style="normal", width=120, height=40, **kwargs):
+        super().__init__(parent, width=width, height=height, 
+                        bg=THEME["card"], highlightthickness=0, **kwargs)
+        
+        self.command = command
+        self.text = text
+        self.style = style
+        self.width = width
+        self.height = height
+        
+        # Colors based on style
+        if style == "accent":
+            self.bg_color = THEME["accent"]
+            self.hover_color = THEME["accent_hover"]
+            self.text_color = "white"
+        elif style == "danger":
+            self.bg_color = THEME["danger"]
+            self.hover_color = "#dc2626"
+            self.text_color = "white"
+        elif style == "success":
+            self.bg_color = THEME["success"]
+            self.hover_color = "#059669"
+            self.text_color = "white"
+        else:
+            self.bg_color = THEME["card_hover"]
+            self.hover_color = THEME["border"]
+            self.text_color = THEME["text"]
+        
+        self.current_color = self.bg_color
+        self.draw()
+        
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+        self.bind("<Button-1>", self.on_click)
+    
+    def draw(self):
+        self.delete("all")
+        radius = 8
+        # Rounded rectangle
+        self.create_arc(0, 0, radius*2, radius*2, start=90, extent=90, 
+                       fill=self.current_color, outline="")
+        self.create_arc(self.width-radius*2, 0, self.width, radius*2, start=0, extent=90,
+                       fill=self.current_color, outline="")
+        self.create_arc(0, self.height-radius*2, radius*2, self.height, start=180, extent=90,
+                       fill=self.current_color, outline="")
+        self.create_arc(self.width-radius*2, self.height-radius*2, self.width, self.height,
+                       start=270, extent=90, fill=self.current_color, outline="")
+        self.create_rectangle(radius, 0, self.width-radius, self.height,
+                            fill=self.current_color, outline="")
+        self.create_rectangle(0, radius, self.width, self.height-radius,
+                            fill=self.current_color, outline="")
+        self.create_text(self.width//2, self.height//2, text=self.text,
+                        fill=self.text_color, font=("Segoe UI", 10, "bold"))
+    
+    def on_enter(self, e):
+        self.current_color = self.hover_color
+        self.draw()
+    
+    def on_leave(self, e):
+        self.current_color = self.bg_color
+        self.draw()
+    
+    def on_click(self, e):
+        if self.command:
+            self.command()
+
+class AnimatedProgressBar(tk.Canvas):
+    """Smooth animated progress bar with gradient effect"""
+    def __init__(self, parent, width=240, height=24, **kwargs):
+        super().__init__(parent, width=width, height=height,
+                        bg=THEME["card"], highlightthickness=0, **kwargs)
+        self.width = width
+        self.height = height
+        self.value = 0
+        self.target_value = 0
+        self.animating = False
+        self.draw_background()
+    
+    def draw_background(self):
+        self.delete("all")
+        # Background
+        radius = self.height // 2
+        self.create_oval(0, 0, self.height, self.height, fill=THEME["border"], outline="")
+        self.create_oval(self.width-self.height, 0, self.width, self.height,
+                        fill=THEME["border"], outline="")
+        self.create_rectangle(radius, 0, self.width-radius, self.height,
+                            fill=THEME["border"], outline="")
+    
+    def set_value(self, value):
+        """Set target value (0-100) with smooth animation"""
+        self.target_value = max(0, min(100, value))
+        if not self.animating:
+            self.animate()
+    
+    def animate(self):
+        self.animating = True
+        diff = self.target_value - self.value
+        if abs(diff) < 0.5:
+            self.value = self.target_value
+            self.animating = False
+        else:
+            self.value += diff * 0.15
+        
+        self.draw_progress()
+        
+        if self.animating:
+            self.after(16, self.animate)
+    
+    def draw_progress(self):
+        self.draw_background()
+        if self.value > 0:
+            prog_width = (self.width - self.height) * (self.value / 100) + self.height
+            radius = self.height // 2
+            
+            # Gradient effect (simple version with color interpolation)
+            color = self._interpolate_color(THEME["accent"], THEME["success"], self.value / 100)
+            
+            self.create_oval(0, 0, self.height, self.height, fill=color, outline="")
+            if prog_width > self.height:
+                self.create_oval(prog_width-self.height, 0, prog_width, self.height,
+                               fill=color, outline="")
+                self.create_rectangle(radius, 0, prog_width-radius, self.height,
+                                    fill=color, outline="")
+    
+    def _interpolate_color(self, color1, color2, t):
+        """Interpolate between two hex colors"""
+        c1 = [int(color1[i:i+2], 16) for i in (1, 3, 5)]
+        c2 = [int(color2[i:i+2], 16) for i in (1, 3, 5)]
+        result = [int(c1[i] + (c2[i] - c1[i]) * t) for i in range(3)]
+        return f"#{result[0]:02x}{result[1]:02x}{result[2]:02x}"
+
+# ----------------------------
 # Main Application
 # ----------------------------
 class DoodleGameApp:
-    """
-    Main game application class implementing the GUI and game logic.
-    
-    Features:
-    - Drawing canvas with tools
-    - Real-time prediction
-    - Score tracking
-    - Multiple rounds
-    - Statistics
-    - Dataset management
-    """
-    
     def __init__(self, root):
-        """
-        Initialize game window and components.
-        
-        Args:
-            root (tk.Tk): Root window instance
-        """
         self.root = root
-        self.root.title("Doodle Guess")
+        self.root.title("Doodle Guess AI")
+        self.root.configure(bg=THEME["bg"])
         self._apply_theme()
 
-        # ---- Global state ----
+        # Drawing state
         self.brush_size = 16
         self.brush_color = "#ffffff"
-        self.mode = tk.StringVar(value="brush")  # brush | eraser
+        self.mode = tk.StringVar(value="brush")
         self._last = None
+        self._drawing = False
 
         # Game state
         self.score = 0
@@ -290,179 +352,297 @@ class DoodleGameApp:
             "per_label": defaultdict(lambda: {"asked": 0, "correct": 0})
         }
 
-        # ---- Layout ----
-        self.container = ttk.Frame(self.root, padding=0)
+        # Auto-predict state
+        self.auto_predict_enabled = tk.BooleanVar(value=False)
+        self.auto_predict_job = None
+
+        # Layout
+        self.container = tk.Frame(self.root, bg=THEME["bg"])
         self.container.pack(fill="both", expand=True)
+        
         self.start_frame = self._build_start_frame(self.container)
         self.game_frame = self._build_game_frame(self.container)
         self._show_frame(self.start_frame)
 
-    # -------------- THEME --------------
     def _apply_theme(self):
         s = ttk.Style()
         s.theme_use("clam")
-        s.configure(".", background=THEME["bg"], foreground=THEME["text"], fieldbackground=THEME["card"])
+        s.configure(".", background=THEME["bg"], foreground=THEME["text"],
+                   fieldbackground=THEME["card"])
         s.configure("Card.TFrame", background=THEME["card"])
-        s.configure("Title.TLabel", font=("Segoe UI", 20, "bold"), background=THEME["bg"], foreground=THEME["text"])
-        s.configure("H2.TLabel", font=("Segoe UI", 13, "bold"), background=THEME["card"])
-        s.configure("Muted.TLabel", font=("Segoe UI", 10), foreground=THEME["muted"], background=THEME["card"])
-        s.configure("MutedGlobal.TLabel", font=("Segoe UI", 10), foreground=THEME["muted"], background=THEME["bg"])
-        s.configure("TButton", padding=8, relief="flat", background=THEME["card"], foreground=THEME["text"])
-        s.map("TButton", background=[("active", "#202531")])
-        s.configure("Accent.TButton", background=THEME["accent"], foreground="white")
-        s.map("Accent.TButton", background=[("active", "#486fdd")])
-        s.configure("Danger.TButton", background="#ef4444", foreground="white")
-        s.map("Danger.TButton", background=[("active", "#c93131")])
-        s.configure("TScale", troughcolor="#0b0e14")
-        s.configure("Horizontal.TProgressbar", troughcolor="#0b0e14", background=THEME["accent"])
+        s.configure("Title.TLabel", font=("Segoe UI", 24, "bold"),
+                   background=THEME["bg"], foreground=THEME["text"])
+        s.configure("H1.TLabel", font=("Segoe UI", 18, "bold"),
+                   background=THEME["card"], foreground=THEME["text"])
+        s.configure("H2.TLabel", font=("Segoe UI", 14, "bold"),
+                   background=THEME["card"], foreground=THEME["text"])
+        s.configure("Body.TLabel", font=("Segoe UI", 11),
+                   background=THEME["card"], foreground=THEME["text_secondary"])
+        s.configure("Muted.TLabel", font=("Segoe UI", 10),
+                   foreground=THEME["muted"], background=THEME["card"])
 
-    # -------------- SCREENS --------------
     def _show_frame(self, frame):
         for child in self.container.winfo_children():
             child.pack_forget()
         frame.pack(fill="both", expand=True)
 
     def _build_start_frame(self, parent):
-        f = ttk.Frame(parent, padding=24)
-        f.columnconfigure(0, weight=1)
+        f = tk.Frame(parent, bg=THEME["bg"], padx=40, pady=40)
+        
+        # Title section
+        title_frame = tk.Frame(f, bg=THEME["bg"])
+        title_frame.pack(fill="x", pady=(0, 32))
+        
+        ttk.Label(title_frame, text="🎨 Doodle Guess AI", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_frame, text="Draw and let AI recognize your doodles in real-time",
+                 font=("Segoe UI", 11), foreground=THEME["muted"],
+                 background=THEME["bg"]).pack(anchor="w", pady=(4, 0))
 
-        ttk.Label(f, text="Doodle Guess", style="Title.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(f, text="AI-powered doodle classification game", style="MutedGlobal.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 16))
-
-        card = ttk.Frame(f, style="Card.TFrame", padding=18)
-        card.grid(row=2, column=0, sticky="nsew")
-        for c in range(4): card.columnconfigure(c, weight=1)
+        # Settings card
+        card = tk.Frame(f, bg=THEME["card"], padx=32, pady=28)
+        card.pack(fill="both", expand=True)
 
         # Difficulty
-        ttk.Label(card, text="Difficulty", style="H2.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        diff_frame = tk.Frame(card, bg=THEME["card"])
+        diff_frame.pack(fill="x", pady=(0, 24))
+        
+        ttk.Label(diff_frame, text="Difficulty Level", style="H2.TLabel").pack(anchor="w", pady=(0, 12))
+        
         self.diff_var = tk.StringVar(value="Medium")
-        for i, name in enumerate(["Easy", "Medium", "Hard"]):
-            rb = ttk.Radiobutton(card, text=name, value=name, variable=self.diff_var)
-            rb.grid(row=1, column=i, sticky="w", padx=(0, 12))
+        diff_buttons = tk.Frame(diff_frame, bg=THEME["card"])
+        diff_buttons.pack(fill="x")
+        
+        for i, (name, desc) in enumerate([
+            ("Easy", "4 categories, relaxed"),
+            ("Medium", "6 categories, balanced"),
+            ("Hard", "6 categories, strict")
+        ]):
+            btn_frame = tk.Frame(diff_buttons, bg=THEME["card"])
+            btn_frame.pack(side="left", padx=(0, 12))
+            
+            rb = ttk.Radiobutton(btn_frame, text=name, value=name, variable=self.diff_var)
+            rb.pack(anchor="w")
+            ttk.Label(btn_frame, text=desc, font=("Segoe UI", 9),
+                     foreground=THEME["muted"], background=THEME["card"]).pack(anchor="w")
 
         # Rounds
-        ttk.Label(card, text="Rounds", style="H2.TLabel").grid(row=2, column=0, sticky="w", pady=(16, 6))
+        rounds_frame = tk.Frame(card, bg=THEME["card"])
+        rounds_frame.pack(fill="x", pady=(0, 24))
+        
+        ttk.Label(rounds_frame, text="Number of Rounds", style="H2.TLabel").pack(anchor="w", pady=(0, 8))
+        
         self.rounds_var = tk.IntVar(value=10)
-        try:
-            # ttk.Spinbox in Py3.8+
-            rounds_input = ttk.Spinbox(card, from_=3, to=50, textvariable=self.rounds_var, width=6)
-        except Exception:
-            rounds_input = tk.Spinbox(card, from_=3, to=50, textvariable=self.rounds_var, width=6)
-        rounds_input.grid(row=3, column=0, sticky="w")
+        rounds_scale = ttk.Scale(rounds_frame, from_=3, to=25, orient="horizontal",
+                                variable=self.rounds_var, length=300)
+        rounds_scale.pack(anchor="w", pady=(0, 4))
+        
+        self.rounds_label = ttk.Label(rounds_frame, text="10 rounds",
+                                     font=("Segoe UI", 10), foreground=THEME["text_secondary"],
+                                     background=THEME["card"])
+        self.rounds_label.pack(anchor="w")
+        
+        def update_rounds_label(val):
+            self.rounds_label.config(text=f"{int(float(val))} rounds")
+        rounds_scale.configure(command=update_rounds_label)
 
-        ttk.Label(card, text="Easy uses fewer classes and a looser confidence requirement. Hard uses all classes and stricter confidence.", style="Muted.TLabel").grid(row=4, column=0, columnspan=4, sticky="w", pady=(14,0))
+        # Info
+        info_frame = tk.Frame(card, bg=THEME["border"], padx=16, pady=12)
+        info_frame.pack(fill="x", pady=(0, 24))
+        
+        ttk.Label(info_frame, text="💡 Tips:",
+                 font=("Segoe UI", 10, "bold"), foreground=THEME["warning"],
+                 background=THEME["border"]).pack(anchor="w")
+        ttk.Label(info_frame,
+                 text="• Draw clearly in the center of the canvas\n• Use the 'Teach' button if AI makes mistakes\n• Press Space to make quick predictions",
+                 font=("Segoe UI", 9), foreground=THEME["text_secondary"],
+                 background=THEME["border"], justify="left").pack(anchor="w", pady=(4, 0))
 
-        start_btn = ttk.Button(f, text="Start", style="Accent.TButton", command=self._start_game)
-        start_btn.grid(row=3, column=0, sticky="w", pady=(16, 0))
+        # Start button
+        start_btn = RoundedButton(card, text="Start Game", style="accent",
+                                 width=160, height=48, command=self._start_game)
+        start_btn.pack(anchor="w")
 
         return f
 
     def _build_game_frame(self, parent):
-        f = ttk.Frame(parent, padding=12)
-        # Header
-        header = ttk.Frame(f, style="Card.TFrame", padding=14)
-        header.grid(row=0, column=0, columnspan=2, sticky="ew")
-        header.columnconfigure(0, weight=1)
-        ttk.Label(header, text="Doodle Guess", style="Title.TLabel").grid(row=0, column=0, sticky="w")
-        self.lbl_score = ttk.Label(header, text="Score: 0", style="H2.TLabel")
-        self.lbl_score.grid(row=0, column=1, sticky="e")
-
-        # Left: canvas + toolbar
-        left = ttk.Frame(f, padding=(0, 12))
-        left.grid(row=1, column=0, sticky="nsew")
-        left.columnconfigure(0, weight=1)
+        f = tk.Frame(parent, bg=THEME["bg"], padx=16, pady=16)
         f.columnconfigure(0, weight=1)
+        f.columnconfigure(1, weight=0)
         f.rowconfigure(1, weight=1)
 
-        toolbar = ttk.Frame(left, style="Card.TFrame", padding=10)
-        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        toolbar.columnconfigure(5, weight=1)
+        # Header
+        header = tk.Frame(f, bg=THEME["card"], padx=20, pady=16)
+        header.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+        header.columnconfigure(1, weight=1)
+        
+        ttk.Label(header, text="🎨 Doodle Guess AI", style="H1.TLabel").grid(row=0, column=0, sticky="w")
+        
+        score_frame = tk.Frame(header, bg=THEME["card"])
+        score_frame.grid(row=0, column=2, sticky="e")
+        ttk.Label(score_frame, text="Score", font=("Segoe UI", 9),
+                 foreground=THEME["muted"], background=THEME["card"]).pack()
+        self.lbl_score = ttk.Label(score_frame, text="0", font=("Segoe UI", 20, "bold"),
+                                  foreground=THEME["success"], background=THEME["card"])
+        self.lbl_score.pack()
 
-        self.btn_brush = ttk.Button(toolbar, text="Brush", command=lambda: self._set_mode("brush"))
-        self.btn_brush.grid(row=0, column=0, padx=(0, 6))
-        self.btn_eraser = ttk.Button(toolbar, text="Eraser", command=lambda: self._set_mode("eraser"))
-        self.btn_eraser.grid(row=0, column=1, padx=(0, 12))
+        # Left: Canvas area
+        left = tk.Frame(f, bg=THEME["bg"])
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(1, weight=1)
 
-        ttk.Label(toolbar, text="Size", style="Muted.TLabel").grid(row=0, column=2, padx=(0, 6))
+        # Toolbar
+        toolbar = tk.Frame(left, bg=THEME["card"], padx=16, pady=12)
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        toolbar.columnconfigure(6, weight=1)
+
+        # Tool buttons
+        self.btn_brush = RoundedButton(toolbar, text="✏️ Brush", width=90, height=36,
+                                      style="accent", command=lambda: self._set_mode("brush"))
+        self.btn_brush.grid(row=0, column=0, padx=(0, 8))
+        
+        self.btn_eraser = RoundedButton(toolbar, text="🧹 Eraser", width=90, height=36,
+                                       command=lambda: self._set_mode("eraser"))
+        self.btn_eraser.grid(row=0, column=1, padx=(0, 16))
+
+        # Size control
+        ttk.Label(toolbar, text="Size", font=("Segoe UI", 9),
+                 foreground=THEME["muted"], background=THEME["card"]).grid(row=0, column=2, padx=(0, 8))
+        
         self.size_var = tk.IntVar(value=self.brush_size)
-        size_scale = ttk.Scale(toolbar, from_=4, to=64, orient="horizontal",
-                               command=self._on_size_change, variable=self.size_var)
-        size_scale.grid(row=0, column=3, sticky="ew", padx=(0, 12))
+        size_scale = ttk.Scale(toolbar, from_=4, to=48, orient="horizontal",
+                              command=self._on_size_change, variable=self.size_var, length=120)
+        size_scale.grid(row=0, column=3, padx=(0, 16))
 
-        color_frame = ttk.Frame(toolbar, style="Card.TFrame")
-        color_frame.grid(row=0, column=4, padx=(0, 12))
-        for i, (name, hexv) in enumerate(PALETTE):
-            b = tk.Button(color_frame, width=2, height=1, bg=hexv, relief="flat",
-                          command=lambda hv=hexv: self._set_color(hv))
+        # Color palette
+        color_frame = tk.Frame(toolbar, bg=THEME["card"])
+        color_frame.grid(row=0, column=4, padx=(0, 16))
+        for i, (name, hexv) in enumerate(PALETTE[:6]):
+            b = tk.Canvas(color_frame, width=24, height=24, bg=THEME["card"],
+                         highlightthickness=0)
             b.grid(row=0, column=i, padx=2)
-        ttk.Button(color_frame, text="Pick", command=self._pick_color).grid(row=0, column=len(PALETTE), padx=(6,0))
+            b.create_oval(4, 4, 20, 20, fill=hexv, outline=THEME["border"], width=1)
+            b.bind("<Button-1>", lambda e, hv=hexv: self._set_color(hv))
 
-        ttk.Button(toolbar, text="Clear", command=self.clear_canvas, style="TButton").grid(row=0, column=5, sticky="e")
-        ttk.Button(toolbar, text="Guess", command=self.on_guess, style="Accent.TButton").grid(row=0, column=6, padx=(8,0))
+        # Action buttons
+        RoundedButton(toolbar, text="🗑️ Clear", width=80, height=36,
+                     command=self.clear_canvas).grid(row=0, column=7, sticky="e", padx=(0, 8))
+        
+        RoundedButton(toolbar, text="🔍 Guess", width=80, height=36, style="success",
+                     command=self.on_guess).grid(row=0, column=8, sticky="e")
 
         # Canvas card
-        canvas_card = ttk.Frame(left, style="Card.TFrame", padding=8)
+        canvas_card = tk.Frame(left, bg=THEME["card"], padx=12, pady=12)
         canvas_card.grid(row=1, column=0, sticky="nsew")
-        canvas_card.columnconfigure(0, weight=1)
-        canvas_card.rowconfigure(0, weight=1)
+        
+        canvas_border = tk.Frame(canvas_card, bg=THEME["border"], padx=2, pady=2)
+        canvas_border.pack(fill="both", expand=True)
+        
+        self.canvas = tk.Canvas(canvas_border, width=CANVAS_SIZE, height=CANVAS_SIZE,
+                               bg=THEME["canvas_bg"], bd=0, highlightthickness=0,
+                               cursor="circle")
+        self.canvas.pack()
 
-        border = tk.Frame(canvas_card, bg=THEME["bg"], bd=0, highlightthickness=1, highlightbackground=THEME["border"])
-        border.grid(row=0, column=0, sticky="nsew")
-        self.canvas = tk.Canvas(border, width=CANVAS_SIZE, height=CANVAS_SIZE,
-                                bg="black", bd=0, highlightthickness=0, cursor="tcross")
-        self.canvas.pack(padx=8, pady=8)
-
-        # Offscreen PIL
+        # PIL canvas
         self.pil_canvas = Image.new("L", (CANVAS_SIZE, CANVAS_SIZE), 0)
         self.pil_draw = ImageDraw.Draw(self.pil_canvas)
 
         self.canvas.bind("<ButtonPress-1>", self._on_draw_start)
         self.canvas.bind("<B1-Motion>", self._on_draw_move)
-        self.canvas.bind("<ButtonRelease-1>", lambda e: setattr(self, "_last", None))
+        self.canvas.bind("<ButtonRelease-1>", self._on_draw_end)
 
-        # Right: sidebar
-        side = ttk.Frame(f, style="Card.TFrame", padding=14)
-        side.grid(row=1, column=1, sticky="ns")
-        for r in range(10): side.rowconfigure(r, weight=0)
+        # Right sidebar
+        sidebar = tk.Frame(f, bg=THEME["card"], padx=20, pady=20, width=320)
+        sidebar.grid(row=1, column=1, sticky="ns")
+        sidebar.grid_propagate(False)
 
-        ttk.Label(side, text="Target", style="H2.TLabel").grid(row=0, column=0, sticky="w")
-        self.lbl_target = ttk.Label(side, text="—", font=("Segoe UI", 13, "bold"))
-        self.lbl_target.grid(row=1, column=0, sticky="w", pady=(2, 10))
+        # Target section
+        target_card = tk.Frame(sidebar, bg=THEME["border"], padx=16, pady=16)
+        target_card.pack(fill="x", pady=(0, 16))
+        
+        ttk.Label(target_card, text="🎯 Draw This",
+                 font=("Segoe UI", 11, "bold"), foreground=THEME["warning"],
+                 background=THEME["border"]).pack(anchor="w")
+        
+        self.lbl_target = ttk.Label(target_card, text="—",
+                                    font=("Segoe UI", 22, "bold"),
+                                    foreground=THEME["text"], background=THEME["border"])
+        self.lbl_target.pack(anchor="w", pady=(4, 0))
 
-        ttk.Label(side, text="Prediction", style="H2.TLabel").grid(row=2, column=0, sticky="w")
-        self.lbl_pred = ttk.Label(side, text="—", font=("Segoe UI", 12))
-        self.lbl_pred.grid(row=3, column=0, sticky="w", pady=(2, 4))
+        # Prediction section
+        pred_card = tk.Frame(sidebar, bg=THEME["card_hover"], padx=16, pady=16)
+        pred_card.pack(fill="x", pady=(0, 16))
+        
+        ttk.Label(pred_card, text="AI Prediction",
+                 font=("Segoe UI", 10), foreground=THEME["muted"],
+                 background=THEME["card_hover"]).pack(anchor="w")
+        
+        self.lbl_pred = ttk.Label(pred_card, text="—",
+                                 font=("Segoe UI", 18, "bold"),
+                                 foreground=THEME["accent"],
+                                 background=THEME["card_hover"])
+        self.lbl_pred.pack(anchor="w", pady=(4, 12))
 
-        self.conf_bar = ttk.Progressbar(side, orient="horizontal", mode="determinate", length=220, maximum=100)
-        self.conf_bar.grid(row=4, column=0, sticky="ew", pady=(0, 2))
-        self.lbl_conf = ttk.Label(side, text="Confidence: —", style="Muted.TLabel")
-        self.lbl_conf.grid(row=5, column=0, sticky="w", pady=(0, 10))
+        # Animated confidence bar
+        self.conf_bar = AnimatedProgressBar(pred_card, width=260, height=20)
+        self.conf_bar.pack(fill="x", pady=(0, 8))
+        
+        self.lbl_conf = ttk.Label(pred_card, text="Confidence: —",
+                                 font=("Segoe UI", 10), foreground=THEME["text_secondary"],
+                                 background=THEME["card_hover"])
+        self.lbl_conf.pack(anchor="w")
 
-        ttk.Button(side, text="Teach as Target", command=self.on_teach).grid(row=6, column=0, sticky="ew", pady=(2, 6))
-        ttk.Button(side, text="New Target", command=self.next_target).grid(row=7, column=0, sticky="ew", pady=(0, 10))
+        # Auto-predict toggle
+        auto_frame = tk.Frame(sidebar, bg=THEME["card"])
+        auto_frame.pack(fill="x", pady=(0, 16))
+        
+        check = ttk.Checkbutton(auto_frame, text="🤖 Auto-predict while drawing",
+                               variable=self.auto_predict_enabled,
+                               command=self._toggle_auto_predict)
+        check.pack(anchor="w")
 
-        ttk.Button(side, text="Save Dataset", command=self.save_dataset).grid(row=8, column=0, sticky="ew", pady=(0, 4))
-        ttk.Button(side, text="Load Dataset", command=self.load_dataset).grid(row=9, column=0, sticky="ew", pady=(0, 12))
+        # Actions
+        ttk.Label(sidebar, text="Actions", font=("Segoe UI", 11, "bold"),
+                 foreground=THEME["text"], background=THEME["card"]).pack(anchor="w", pady=(0, 8))
+        
+        RoundedButton(sidebar, text="📚 Teach as Target", width=260, height=40,
+                     command=self.on_teach).pack(pady=(0, 8))
+        
+        RoundedButton(sidebar, text="🔄 New Target", width=260, height=40,
+                     command=self.next_target).pack(pady=(0, 16))
 
-        ttk.Button(side, text="Exit to Start", command=self._exit_to_start).grid(row=10, column=0, sticky="ew")
+        # Data management
+        ttk.Label(sidebar, text="Dataset", font=("Segoe UI", 11, "bold"),
+                 foreground=THEME["text"], background=THEME["card"]).pack(anchor="w", pady=(8, 8))
+        
+        RoundedButton(sidebar, text="💾 Save Dataset", width=260, height=36,
+                     command=self.save_dataset).pack(pady=(0, 6))
+        
+        RoundedButton(sidebar, text="📁 Load Dataset", width=260, height=36,
+                     command=self.load_dataset).pack(pady=(0, 16))
 
-        # Status
-        status = ttk.Frame(f, style="Card.TFrame", padding=(12, 8))
-        status.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
-        ttk.Label(
-            status,
-            text="Shortcuts: Space=Guess • T=Teach • N=New Target • C=Clear • B=Brush • E=Eraser",
-            style="Muted.TLabel"
-        ).grid(row=0, column=0, sticky="w")
+        # Exit
+        RoundedButton(sidebar, text="⬅️ Back to Menu", width=260, height=36,
+                     style="danger", command=self._exit_to_start).pack(pady=(16, 0))
+
+        # Status bar
+        status = tk.Frame(f, bg=THEME["card"], padx=16, pady=10)
+        status.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(12, 0))
+        
+        ttk.Label(status,
+                 text="⌨️ Space: Guess  •  T: Teach  •  N: New Target  •  C: Clear  •  B: Brush  •  E: Eraser",
+                 font=("Segoe UI", 9), foreground=THEME["muted"],
+                 background=THEME["card"]).pack()
 
         self._bind_shortcuts()
         return f
 
-    # -------------- START / RESET --------------
+    # -------------- Game Logic --------------
     def _start_game(self):
         self.diff = self.diff_var.get()
         preset = DIFF_PRESETS[self.diff]
         self.rounds_total = max(3, int(self.rounds_var.get()))
+        
         rng = random.Random(42)
         count = preset["categories"]
         chosen = rng.sample(ALL_CATEGORIES, k=count) if count < len(ALL_CATEGORIES) else ALL_CATEGORIES[:]
@@ -470,16 +650,16 @@ class DoodleGameApp:
         self.conf_threshold = preset["conf_threshold"]
         self.pred_queue = deque(maxlen=preset["smooth_window"])
 
-        # model
+        # Initialize model
         self.model = TinyKNN(k=K_NEIGHBORS)
         X, y = generate_seed_dataset(self.active_categories)
         self.X, self.y = X, y
         self.model.fit(self.X, self.y)
 
-        # reset game
+        # Reset game state
         self.score = 0
         self.round_index = 0
-        self.lbl_score.config(text="Score: 0")
+        self.lbl_score.config(text="0")
         self.stats = {
             "started_at": time.time(),
             "guesses": 0,
@@ -492,85 +672,127 @@ class DoodleGameApp:
         self.next_target(auto_clear=True)
 
     def _exit_to_start(self):
+        if self.auto_predict_job:
+            self.root.after_cancel(self.auto_predict_job)
+            self.auto_predict_job = None
         self._show_frame(self.start_frame)
 
-    # -------------- DRAWING --------------
+    # -------------- Drawing --------------
     def _on_draw_start(self, event):
-        """Handle mouse button press - start drawing."""
         self._last = (event.x, event.y)
+        self._drawing = True
         self._draw_point(event.x, event.y)
 
     def _on_draw_move(self, event):
-        """Handle mouse drag - continue drawing."""
-        if self._last is None: return
-        x0, y0 = self._last; x1, y1 = event.x, event.y
+        if self._last is None or not self._drawing:
+            return
+        
+        x0, y0 = self._last
+        x1, y1 = event.x, event.y
+        
         if self.mode.get() == "eraser":
-            color_canvas = "black"; color_pil = 0
+            color_canvas = THEME["canvas_bg"]
+            color_pil = 0
         else:
-            color_canvas = self.brush_color; color_pil = 255
+            color_canvas = self.brush_color
+            color_pil = 255
+        
         self.canvas.create_line(x0, y0, x1, y1, fill=color_canvas,
-                                width=self.brush_size, capstyle=tk.ROUND, smooth=True)
+                               width=self.brush_size, capstyle=tk.ROUND, smooth=True)
         self.pil_draw.line((x0, y0, x1, y1), fill=color_pil, width=self.brush_size)
         self._last = (x1, y1)
+
+    def _on_draw_end(self, event):
+        self._last = None
+        self._drawing = False
 
     def _draw_point(self, x, y):
         r = self.brush_size // 2
         if self.mode.get() == "eraser":
-            color_canvas = "black"; color_pil = 0
+            color_canvas = THEME["canvas_bg"]
+            color_pil = 0
         else:
-            color_canvas = self.brush_color; color_pil = 255
-        self.canvas.create_oval(x - r, y - r, x + r, y + r, fill=color_canvas, outline=color_canvas)
+            color_canvas = self.brush_color
+            color_pil = 255
+        
+        self.canvas.create_oval(x - r, y - r, x + r, y + r,
+                               fill=color_canvas, outline=color_canvas)
         self.pil_draw.ellipse((x - r, y - r, x + r, y + r), fill=color_pil)
 
     def clear_canvas(self):
         self.canvas.delete("all")
-        self.canvas.configure(bg="black")
         self.pil_canvas = Image.new("L", (CANVAS_SIZE, CANVAS_SIZE), 0)
         self.pil_draw = ImageDraw.Draw(self.pil_canvas)
         self.lbl_pred.config(text="—")
         self.lbl_conf.config(text="Confidence: —")
-        self.conf_bar["value"] = 0
+        self.conf_bar.set_value(0)
         self.pred_queue.clear()
 
     def _on_size_change(self, val):
         try:
             self.brush_size = int(float(val))
-        except Exception:
+        except:
             pass
 
     def _set_color(self, hexv):
         self.brush_color = hexv
         self._set_mode("brush")
 
-    def _pick_color(self):
-        color = colorchooser.askcolor(color=self.brush_color)[1]
-        if color:
-            self._set_color(color)
-
     def _set_mode(self, mode):
         self.mode.set(mode)
         if mode == "brush":
-            self.btn_brush.configure(style="Accent.TButton")
-            self.btn_eraser.configure(style="TButton")
+            self.btn_brush.style = "accent"
+            self.btn_brush.draw()
+            self.btn_eraser.style = "normal"
+            self.btn_eraser.draw()
         else:
-            self.btn_eraser.configure(style="Accent.TButton")
-            self.btn_brush.configure(style="TButton")
+            self.btn_eraser.style = "accent"
+            self.btn_eraser.draw()
+            self.btn_brush.style = "normal"
+            self.btn_brush.draw()
 
-    # -------------- MODEL / GAME --------------
+    # -------------- Auto-predict --------------
+    def _toggle_auto_predict(self):
+        if self.auto_predict_enabled.get():
+            self._schedule_auto_predict()
+        else:
+            if self.auto_predict_job:
+                self.root.after_cancel(self.auto_predict_job)
+                self.auto_predict_job = None
+
+    def _schedule_auto_predict(self):
+        if self.auto_predict_enabled.get():
+            self._auto_predict_silent()
+            self.auto_predict_job = self.root.after(500, self._schedule_auto_predict)
+
+    def _auto_predict_silent(self):
+        """Run prediction without advancing round"""
+        x = self._capture_vector()
+        pred, conf = self.model.predict_with_conf(x)
+        
+        if pred is None:
+            return
+        
+        pred_s, conf_s = self._smoothed_prediction(pred, conf)
+        self.lbl_pred.config(text=pred_s)
+        self.lbl_conf.config(text=f"Confidence: {int(conf_s*100)}%")
+        self.conf_bar.set_value(int(conf_s * 100))
+
+    # -------------- Model / Prediction --------------
     def _capture_vector(self):
-        """
-        Process current drawing for prediction.
-        Crops to content, centers, and preprocesses.
-        """
         img = self.pil_canvas.copy()
         arr = np.array(img)
         ys, xs = np.where(arr > 10)
+        
         if len(xs) > 0 and len(ys) > 0:
             minx, maxx = xs.min(), xs.max()
             miny, maxy = ys.min(), ys.max()
-            minx = max(0, minx - 12); miny = max(0, miny - 12)
-            maxx = min(arr.shape[1]-1, maxx + 12); maxy = min(arr.shape[0]-1, maxy + 12)
+            minx = max(0, minx - 12)
+            miny = max(0, miny - 12)
+            maxx = min(arr.shape[1]-1, maxx + 12)
+            maxy = min(arr.shape[0]-1, maxy + 12)
             img = img.crop((minx, miny, maxx, maxy))
+        
         w, h = img.size
         side = max(w, h)
         sq = Image.new("L", (side, side), 0)
@@ -578,76 +800,91 @@ class DoodleGameApp:
         return preprocess_image(sq)
 
     def _smoothed_prediction(self, new_label, new_conf):
-        """
-        Apply temporal smoothing to predictions.
-        Reduces jitter in real-time predictions.
-        """
         self.pred_queue.append((new_label, new_conf))
         if not self.pred_queue:
             return new_label, new_conf
+        
         tally = {}
         for lab, cf in self.pred_queue:
             tally[lab] = tally.get(lab, 0.0) + cf
+        
         best_lab = max(tally.items(), key=lambda kv: kv[1])[0]
         total = sum(tally.values()) + 1e-8
         conf_est = tally[best_lab] / total
         return best_lab, float(conf_est)
 
     def on_guess(self):
-        """
-        Handle prediction request.
-        Updates UI, tracks stats, advances round if correct.
-        """
         x = self._capture_vector()
         pred, conf = self.model.predict_with_conf(x)
+        
         if pred is None:
             self.lbl_pred.config(text="(no data)")
             self.lbl_conf.config(text="Confidence: 0%")
-            self.conf_bar["value"] = 0
+            self.conf_bar.set_value(0)
             return
 
-        # stats: a guess occurred
         self.stats["guesses"] += 1
 
         pred_s, conf_s = self._smoothed_prediction(pred, conf)
         self.lbl_pred.config(text=pred_s)
         self.lbl_conf.config(text=f"Confidence: {int(conf_s*100)}%")
-        self.conf_bar["value"] = int(conf_s * 100)
+        self.conf_bar.set_value(int(conf_s * 100))
 
         if pred_s == self.target and conf_s >= self.conf_threshold:
             self.score += 1
             self.stats["correct"] += 1
             self.stats["conf_sum_correct"] += conf_s
-            self.lbl_score.config(text=f"Score: {self.score}")
-            messagebox.showinfo("Correct", f"Recognized: {pred_s}")
-            self._advance_round()
+            self.stats["per_label"][self.target]["correct"] += 1
+            self.lbl_score.config(text=str(self.score))
+            
+            # Visual feedback
+            self._show_success_feedback()
+            self.root.after(800, self._advance_round)
+
+    def _show_success_feedback(self):
+        """Flash success animation"""
+        overlay = tk.Frame(self.canvas, bg=THEME["success"])
+        overlay.place(relwidth=1, relheight=1)
+        overlay.lift()
+        
+        label = tk.Label(overlay, text="✓ Correct!", font=("Segoe UI", 24, "bold"),
+                        fg="white", bg=THEME["success"])
+        label.place(relx=0.5, rely=0.5, anchor="center")
+        
+        def fade_out(alpha=100):
+            if alpha > 0:
+                self.root.after(10, lambda: fade_out(alpha - 5))
+            else:
+                overlay.destroy()
+        
+        self.root.after(600, lambda: fade_out())
 
     def on_teach(self):
         x = self._capture_vector()
         self.X = np.vstack([self.X, x]) if self.X is not None else np.array([x])
         self.y = np.append(self.y, self.target) if self.y is not None else np.array([self.target], dtype=object)
         self.model.fit(self.X, self.y)
-        self.lbl_pred.config(text=f"Taught: {self.target}")
-        self.lbl_conf.config(text="Confidence: —")
-        self.conf_bar["value"] = 0
+        
+        self.lbl_pred.config(text=f"✓ Taught: {self.target}")
+        self.lbl_conf.config(text="Added to training data")
+        self.conf_bar.set_value(100)
         self.pred_queue.clear()
 
     def next_target(self, auto_clear=False):
         self.target = random.choice(self.active_categories)
         self.lbl_target.config(text=self.target)
-        if auto_clear: self.clear_canvas()
-        # track that this label was asked in this round
         self.stats["per_label"][self.target]["asked"] += 1
+        if auto_clear:
+            self.clear_canvas()
 
     def _advance_round(self):
-        # One target successfully completed -> next round
         self.round_index += 1
         if self.round_index >= self.rounds_total:
             self._end_round()
         else:
             self.next_target(auto_clear=True)
 
-    # -------------- SCOREBOARD --------------
+    # -------------- End Game --------------
     def _end_round(self):
         duration = time.time() - (self.stats["started_at"] or time.time())
         total_rounds = self.rounds_total
@@ -656,96 +893,122 @@ class DoodleGameApp:
         accuracy = (correct / guesses * 100.0) if guesses else 0.0
         avg_conf = (self.stats["conf_sum_correct"] / correct) if correct else 0.0
 
-        # Layout modal
+        # Create modal
         win = tk.Toplevel(self.root)
-        win.title("Round Summary")
+        win.title("Game Complete!")
         win.configure(bg=THEME["bg"])
         win.transient(self.root)
         win.grab_set()
+        win.geometry("500x600")
 
-        container = ttk.Frame(win, padding=18, style="Card.TFrame")
-        container.grid(row=0, column=0, sticky="nsew")
-        win.columnconfigure(0, weight=1)
-        win.rowconfigure(0, weight=1)
+        container = tk.Frame(win, bg=THEME["card"], padx=32, pady=32)
+        container.pack(fill="both", expand=True, padx=20, pady=20)
 
-        ttk.Label(container, text="Round Summary", style="H2.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 12))
+        # Title
+        ttk.Label(container, text="🏆 Game Complete!",
+                 font=("Segoe UI", 20, "bold"), foreground=THEME["success"],
+                 background=THEME["card"]).pack(pady=(0, 20))
 
-        # Top metrics
-        top = ttk.Frame(container, style="Card.TFrame")
-        top.grid(row=1, column=0, sticky="ew", pady=(0, 12))
-        for i in range(4): top.columnconfigure(i, weight=1)
+        # Stats grid
+        stats_frame = tk.Frame(container, bg=THEME["card_hover"], padx=20, pady=16)
+        stats_frame.pack(fill="x", pady=(0, 16))
 
-        ttk.Label(top, text=f"Rounds: {total_rounds}", style="Muted.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(top, text=f"Correct: {correct}", style="Muted.TLabel").grid(row=0, column=1, sticky="w")
-        ttk.Label(top, text=f"Guesses: {guesses}", style="Muted.TLabel").grid(row=0, column=2, sticky="w")
-        ttk.Label(top, text=f"Accuracy: {accuracy:.1f}%", style="Muted.TLabel").grid(row=0, column=3, sticky="w")
-        ttk.Label(top, text=f"Avg confidence (correct): {int(avg_conf*100)}%", style="Muted.TLabel").grid(row=1, column=0, columnspan=4, sticky="w", pady=(6,0))
-        ttk.Label(top, text=f"Time: {int(duration)} s", style="Muted.TLabel").grid(row=2, column=0, columnspan=4, sticky="w", pady=(2,0))
+        stats_data = [
+            ("Score", f"{correct}/{total_rounds}"),
+            ("Accuracy", f"{accuracy:.1f}%"),
+            ("Total Guesses", str(guesses)),
+            ("Avg Confidence", f"{int(avg_conf*100)}%"),
+            ("Time", f"{int(duration)}s")
+        ]
 
-        # Per-label table
-        table = ttk.Frame(container, style="Card.TFrame")
-        table.grid(row=2, column=0, sticky="ew")
-        for i in range(3): table.columnconfigure(i, weight=1)
+        for i, (label, value) in enumerate(stats_data):
+            row_frame = tk.Frame(stats_frame, bg=THEME["card_hover"])
+            row_frame.pack(fill="x", pady=4)
+            
+            tk.Label(row_frame, text=label, font=("Segoe UI", 10),
+                    fg=THEME["muted"], bg=THEME["card_hover"], anchor="w").pack(side="left")
+            tk.Label(row_frame, text=value, font=("Segoe UI", 12, "bold"),
+                    fg=THEME["text"], bg=THEME["card_hover"], anchor="e").pack(side="right")
 
-        header_style = "Muted.TLabel"
-        ttk.Label(table, text="Label", style=header_style).grid(row=0, column=0, sticky="w", padx=(0,8))
-        ttk.Label(table, text="Asked", style=header_style).grid(row=0, column=1, sticky="w", padx=(0,8))
-        ttk.Label(table, text="Correct", style=header_style).grid(row=0, column=2, sticky="w")
+        # Per-label breakdown
+        ttk.Label(container, text="Category Breakdown",
+                 font=("Segoe UI", 12, "bold"), foreground=THEME["text"],
+                 background=THEME["card"]).pack(anchor="w", pady=(8, 8))
 
-        r = 1
+        table_frame = tk.Frame(container, bg=THEME["card"])
+        table_frame.pack(fill="both", expand=True)
+
+        # Headers
+        header_frame = tk.Frame(table_frame, bg=THEME["border"], padx=12, pady=8)
+        header_frame.pack(fill="x")
+        header_frame.columnconfigure(0, weight=2)
+        header_frame.columnconfigure(1, weight=1)
+        header_frame.columnconfigure(2, weight=1)
+
+        for i, text in enumerate(["Category", "Asked", "Correct"]):
+            tk.Label(header_frame, text=text, font=("Segoe UI", 9, "bold"),
+                    fg=THEME["muted"], bg=THEME["border"]).grid(row=0, column=i, sticky="w", padx=8)
+
+        # Data rows
         for lab in sorted(self.stats["per_label"].keys()):
-            row = self.stats["per_label"][lab]
-            ttk.Label(table, text=lab).grid(row=r, column=0, sticky="w", padx=(0,8))
-            ttk.Label(table, text=str(row["asked"])).grid(row=r, column=1, sticky="w", padx=(0,8))
-            ttk.Label(table, text=str(row["correct"])).grid(row=r, column=2, sticky="w")
-            r += 1
+            row_data = self.stats["per_label"][lab]
+            row_frame = tk.Frame(table_frame, bg=THEME["card_hover"], padx=12, pady=6)
+            row_frame.pack(fill="x", pady=1)
+            row_frame.columnconfigure(0, weight=2)
+            row_frame.columnconfigure(1, weight=1)
+            row_frame.columnconfigure(2, weight=1)
 
-        # Actions
-        actions = ttk.Frame(container, style="Card.TFrame")
-        actions.grid(row=3, column=0, sticky="ew", pady=(12,0))
-        actions.columnconfigure(0, weight=1)
-        actions.columnconfigure(1, weight=0)
-        actions.columnconfigure(2, weight=0)
+            tk.Label(row_frame, text=lab, font=("Segoe UI", 10),
+                    fg=THEME["text"], bg=THEME["card_hover"], anchor="w").grid(row=0, column=0, sticky="w", padx=8)
+            tk.Label(row_frame, text=str(row_data["asked"]), font=("Segoe UI", 10),
+                    fg=THEME["text_secondary"], bg=THEME["card_hover"]).grid(row=0, column=1, sticky="w", padx=8)
+            tk.Label(row_frame, text=str(row_data["correct"]), font=("Segoe UI", 10),
+                    fg=THEME["success"], bg=THEME["card_hover"]).grid(row=0, column=2, sticky="w", padx=8)
 
-        def restart_same():
-            win.destroy()
-            self._start_game()
+        # Buttons
+        btn_frame = tk.Frame(container, bg=THEME["card"])
+        btn_frame.pack(fill="x", pady=(20, 0))
 
-        def back_to_start():
-            win.destroy()
-            self._exit_to_start()
+        RoundedButton(btn_frame, text="🔄 Play Again", width=140, height=44,
+                     style="accent", command=lambda: [win.destroy(), self._start_game()]).pack(side="left", padx=(0, 8))
+        
+        RoundedButton(btn_frame, text="⬅️ Main Menu", width=140, height=44,
+                     command=lambda: [win.destroy(), self._exit_to_start()]).pack(side="left")
 
-        ttk.Button(actions, text="Play Again", style="Accent.TButton", command=restart_same).grid(row=0, column=1, padx=(0,8))
-        ttk.Button(actions, text="Close", command=back_to_start).grid(row=0, column=2)
-
-    # -------------- DATA I/O --------------
+    # -------------- Data I/O --------------
     def save_dataset(self):
-        """Save current training data to NPZ file."""
         try:
-            path = filedialog.asksaveasfilename(defaultextension=".npz", initialfile=DATA_FILE,
-                                                filetypes=[("NumPy Zip", "*.npz")])
-            if not path: return
+            path = filedialog.asksaveasfilename(
+                defaultextension=".npz",
+                initialfile=DATA_FILE,
+                filetypes=[("NumPy Zip", "*.npz")])
+            if not path:
+                return
             np.savez_compressed(path, X=self.X, y=self.y)
-            messagebox.showinfo("Saved", f"Dataset saved to:\n{path}")
+            messagebox.showinfo("Success", f"Dataset saved!\n{len(self.y)} samples")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
     def load_dataset(self):
-        """Load training data from NPZ file."""
         try:
             path = filedialog.askopenfilename(filetypes=[("NumPy Zip", "*.npz")])
-            if not path: return
+            if not path:
+                return
             data = np.load(path, allow_pickle=True)
-            self.X = data["X"]; self.y = data["y"]
+            self.X = data["X"]
+            self.y = data["y"]
+            
             mask = np.array([lab in self.active_categories for lab in self.y], dtype=bool)
             if mask.any():
-                self.X = self.X[mask]; self.y = self.y[mask]
+                self.X = self.X[mask]
+                self.y = self.y[mask]
+            
             self.model.fit(self.X, self.y)
-            messagebox.showinfo("Loaded", f"Dataset loaded: {len(self.y)} samples")
+            messagebox.showinfo("Success", f"Dataset loaded!\n{len(self.y)} samples")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
-    # -------------- SHORTCUTS --------------
+    # -------------- Shortcuts --------------
     def _bind_shortcuts(self):
         self.root.bind("<space>", lambda e: self.on_guess())
         self.root.bind("<Key-t>", lambda e: self.on_teach())
@@ -764,5 +1027,6 @@ class DoodleGameApp:
 # ----------------------------
 if __name__ == "__main__":
     root = tk.Tk()
+    root.geometry("1200x800")
     app = DoodleGameApp(root)
     root.mainloop()
