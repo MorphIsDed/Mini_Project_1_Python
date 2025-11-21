@@ -1449,6 +1449,6 @@ class DoodleGameApp:
 # ----------------------------
 if __name__ == "__main__":
     root = tk.Tk()
-    root.geometry("1200x800")
+    root.geometry("1920x1080")
     app = DoodleGameApp(root)
     root.mainloop()
